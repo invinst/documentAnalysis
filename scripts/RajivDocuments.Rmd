@@ -1,0 +1,185 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(readxl)
+library(xml2)
+library(rvest)
+library(tm)
+library(SnowballC)
+library(broom)
+library(tidytext)
+library(ggplot2)
+library(lubridate)
+library(proxy)
+library(viridis)
+library(fields) 
+library(mixtools)
+library(stm)
+library(topicmodels)
+library(tidyr)
+```
+
+#### Read in the complaints per document and the complaints datasets
+```{r}
+docs <- read_xls("../data/first 4 batches.xls")[1:2] %>% distinct() %>% arrange(CRID)
+names(docs)[2] = "Num_of_Docs"
+
+complaints <- read.csv("../data/Complaint_Dataset.csv") %>% select(-X)
+  # This dataset was cleaned and altered by N3 using a synthesis of II data.
+
+narratives <- read.csv("../data/narratives.csv", stringsAsFactors = FALSE)
+```
+
+
+#### Perform topic analysis on the documents.
+
+##### This step creates a document term matrix and performs textual pre-processing
+```{r}
+customStopWords <-c("alleg", "accus", "offic", "chicago", "parti", "report","complain", "polic")
+narratives <- narratives %>% 
+  mutate(text = ifelse(text=="(None Entered)", NA, text)) %>%
+  mutate(id = 1:30719)
+#This is basic preprocessing. Turns it into a corpus and then turns it into a DTM
+Corpus <- VCorpus(VectorSource(narratives$text)) %>% 
+  tm_map(removePunctuation) %>% 
+  tm_map(tolower) %>% 
+  tm_map(removeWords, stopwords("english")) %>% 
+  tm_map(removeNumbers) %>% 
+  tm_map(stemDocument) %>% 
+  tm_map(removeWords, customStopWords) %>% 
+  tm_map(PlainTextDocument)
+DTM = DocumentTermMatrix(Corpus)
+rownames(DTM) <- narratives$id
+#This removes observations that are either na or nothing
+rowTotals <- apply(DTM, 1, sum)
+DTM <- DTM[rowTotals >0, ]
+```
+
+##### This step runs Latent Dirichlet Allocation to probabilistically assign topic values for 4 different numbers of topics.
+```{r}
+LDA <- LDA(DTM, k = 5, control = list(seed=6))
+
+ldaOut.terms <- as.matrix(terms(LDA,10))
+ldaOut.terms
+
+LDA2 <- LDA(DTM, k = 12, control = list(seed=6))
+ldaOut.terms2 <- as.matrix(terms(LDA2,10))
+ldaOut.terms2
+
+LDA3 <- LDA(DTM, k = 15, control = list(seed=6))
+ldaOut.terms3 <- as.matrix(terms(LDA3,10))
+ldaOut.terms3
+
+LDA4 <- LDA(DTM, k = 20, control = list(seed=6))
+ldaOut.terms4 <- as.matrix(terms(LDA4,10))
+ldaOut.terms4
+```
+
+##### Export the variation of 15 topics with 20 words for each topic.
+```{r}
+as.matrix(terms(LDA3,20)) %>%
+  as.data.frame() %>%
+  write.csv("../data/Topic_List.csv")
+```
+
+##### This is to look at the probabilistic topic values assigned to each document. Currently this doesn't export a spreadsheet, but can be modified to export a csv.
+```{r}
+topicAssignments <- tidy(LDA3, matrix = "gamma") %>% 
+  mutate(document = as.integer(document)) %>% 
+  mutate(topic = as.integer(topic)) %>% 
+  arrange(topic) %>% 
+  arrange(document) %>% 
+  mutate(topic = paste0("Topic_", topic))
+
+wide <- spread(topicAssignments, topic, gamma)
+
+documentAssignments <- narratives %>% left_join(wide, by = c("id"="document"))
+
+documentAssignments %>% write.csv("data/documentAssignments.csv")
+
+
+```
+
+##### Create graphs comparing which categories are in each dataset.
+```{r}
+top5a <- complaints %>% 
+  select(CRID, Category) %>%
+  mutate(Category = as.character(Category)) %>% 
+  distinct() %>% 
+  count(Category) %>%
+  arrange(-n) %>%
+  head(5) %>%
+  pull(Category)
+
+all <- complaints %>% 
+  select(CRID, Category)  %>% 
+  mutate(Category = as.character(Category)) %>% 
+  distinct() %>% 
+  mutate(type = "All")
+
+top5b <- complaints %>% 
+  filter(CRID %in% docs$CRID) %>% 
+  select(CRID, Category) %>%
+  mutate(Category = as.character(Category)) %>% 
+  distinct() %>% 
+  count(Category) %>%
+  arrange(-n) %>%
+  head(5) %>%
+  pull(Category)
+
+all2<- complaints %>% 
+  filter(CRID %in% docsPerCRID$CRID) %>% 
+  select(CRID, Category) %>% 
+  mutate(Category = as.character(Category)) %>% 
+  distinct() %>% 
+  mutate(type = "Docs Per CRID")
+
+top5c <- complaints %>% 
+  filter(CRID %in% narratives$cr_id) %>% 
+  select(CRID, Category) %>%
+  mutate(Category = as.character(Category)) %>% 
+  distinct() %>% 
+  count(Category) %>%
+  arrange(-n) %>%
+  head(5) %>%
+  pull(Category)
+
+all3 <- complaints %>% 
+  filter(CRID %in% narratives$cr_id) %>% 
+  select(CRID, Category) %>% 
+  mutate(Category = as.character(Category)) %>% 
+  distinct() %>% 
+  mutate(type = "Narratives")
+
+top5 <- c(top5a, top5b, top5c)
+
+
+allComplaints <- all %>% rbind(all2) %>% rbind(all3) %>% filter(Category %in% top5)
+
+
+ggplot(allComplaints, aes(Category, group = type)) + 
+  geom_bar(aes(y = ..prop.., fill = factor(..x..)), stat="count") + 
+  scale_y_continuous(labels=scales::percent) +
+  ylab("relative frequencies") +
+  facet_grid(~type)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(legend.position = "none")
+
+narrativesAndDocs <- c(narratives$cr_id, docs$CRID)
+
+received <- all2 %>% rbind(all3) %>% filter(CRID %in% narrativesAndDocs) %>% mutate(type = "Documents Received")
+allComplaints <- all %>% rbind(received)%>% filter(Category %in% top5)
+ggplot(allComplaints, aes(Category, group = type)) + 
+  geom_bar(aes(y = ..prop.., fill = factor(..x..)), stat="count") + 
+  scale_y_continuous(labels=scales::percent) +
+  ylab("relative frequencies") +
+  facet_grid(~type)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(legend.position = "none")
+
+```
+
