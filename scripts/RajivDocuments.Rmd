@@ -99,7 +99,7 @@ wide <- spread(topicAssignments, topic, gamma)
 
 documentAssignments <- narratives %>% left_join(wide, by = c("id"="document"))
 
-documentAssignments %>% write.csv("data/documentAssignments.csv")
+documentAssignments %>% write.csv("../data/documentAssignments.csv")
 
 
 ```
