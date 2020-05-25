@@ -1,0 +1,92 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+interpretations <- readxl::read_xlsx("../data/output/topic_interpretations.xlsx")
+docAssignments <- read.csv("../data/output/documentAssignments.csv")
+complaints <- read.csv("../data/input/Complaint_Dataset.csv") %>% distinct(CRID, .keep_all = TRUE) %>% select(CRID, Category, Filedby)
+commAssignments<- read.csv("../data/input/Officer_Community_Assignments.csv") %>% mutate(Community_ID=as.integer(Community_ID))
+allComplaints <- read.csv("../data/input/Complaint_Dataset.csv") %>% distinct(CRID, .keep_all = TRUE)
+  
+```
+
+
+```{r}
+topics <- docAssignments %>% 
+  distinct(Topic_1, Topic_2, Topic_3, Topic_4, Topic_5, Topic_6, Topic_7, Topic_8, Topic_9, Topic_10, Topic_11,Topic_12, Topic_13, Topic_14, .keep_all = TRUE) %>% 
+  filter(!is.na(text)) %>% 
+  filter(column_name=="Initial / Intake Allegation") %>% 
+  distinct(cr_id, .keep_all = TRUE) %>% 
+  mutate(
+    ImproperSearchOrDamage = ifelse(Topic_1>0.1, 1, 0),
+    FalseArrestOrForce = ifelse(Topic_2>0.1, 1, 0),
+    CellPhone = ifelse(Topic_3>0.1, 1, 0),
+    ProfanityVerbalAbuse = ifelse(Topic_4>0.1 |Topic_6>0.1, 1, 0),
+    PhysicalForce = ifelse(Topic_5>0.1, 1, 0),
+    Inventory = ifelse(Topic_7>0.1, 1, 0),
+    TrafficStop = ifelse(Topic_8>0.1 | Topic_9>0.1, 1, 0),
+    RaceGenderClothes = ifelse(Topic_11>0.1, 1, 0),
+    WeaponDetainmentOrDrugs = ifelse(Topic_13>0.1, 1, 0),
+    Family = ifelse(Topic_14>0.1, 1, 0),
+    FailureToDoSomething = ifelse(Topic_15>0.1, 1, 0)
+  )
+topics <- topics %>% 
+  select(cr_id, text) %>% 
+  cbind(topics[,27:37]) %>%
+  as.data.frame() %>% 
+  rename(CRID = cr_id) %>% 
+  left_join(complaints) %>% 
+  filter(!is.na(Category))
+
+```
+
+```{r}
+byCat <- topics %>% 
+  filter(Category!="") %>% 
+  group_by(Category) %>% 
+  summarize_all("mean") %>% 
+  select(-c(CRID, text, Filedby)) %>% 
+  group_by(Category) %>%
+  summarize_all(function(x){return(x*100)})
+byCat
+byCat%>% 
+  write.csv("../data/output/PercentTopicsByCategory.csv")
+```
+
+This tells us that there actually is an issue here. There are several things like physical force and verbal harassment that are picked up elsewhere
+
+
+We want to flag complaints that have certain topics
+```{r}
+flagged <- topics %>% mutate(Val = ImproperSearchOrDamage+ FalseArrestOrForce+ ProfanityVerbalAbuse+ PhysicalForce+ WeaponDetainmentOrDrugs) %>% arrange(-Val)
+
+GetComplaints <- function(comm)
+{
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  crids <- allComplaints %>% filter(UID %in% uids) %>% pull(CRID)
+  val <- flagged %>% filter(CRID %in% crids) %>% pull(CRID)
+  val <- paste(val,collapse=", ")
+  if(val==""){
+    return(NA)
+  }
+  return(val)
+}
+```
+
+```{r}
+comms <- read.csv('../data/input/AttributesByCommunity.csv', stringsAsFactors = FALSE) %>% select(-X)
+comms <- comms %>% group_by(Community_ID) %>% mutate(ToRead_ordered = GetComplaints(Community_ID))%>% 
+  select(Community_ID, Count, current_age, percentBlack, percentWhite, percentMale, percentFemale, WithinCommunityComplaints, Index_Value, DetectedCrew, totalSettlements, NumberOfDocs, NumberOfDocRequests,ToRead_ordered)
+
+comms  %>% write.csv("../data/output/BigCommunityDataset.csv")
+```
+
+```{r}
+officerAssignments <- commAssignments %>% select(officer, UID, Crew, Community_ID) %>% rename(ActualCrew = Crew) %>% mutate(Community_ID = ifelse(is.na(Community_ID), "None", Community_ID))
+officerAssignments %>% write.csv("../data/output/officerCommAssignments.csv")
+```
+
+
+

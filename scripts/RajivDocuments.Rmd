@@ -25,13 +25,13 @@ library(tidyr)
 
 #### Read in the complaints per document and the complaints datasets
 ```{r}
-docs <- read_xls("../data/first 4 batches.xls")[1:2] %>% distinct() %>% arrange(CRID)
+docs <- read_xls("../data/input/first 4 batches.xls")[1:2] %>% distinct() %>% arrange(CRID)
 names(docs)[2] = "Num_of_Docs"
 
-complaints <- read.csv("../data/Complaint_Dataset.csv") %>% select(-X)
+complaints <- read.csv("../data/input/Complaint_Dataset.csv") %>% select(-X)
   # This dataset was cleaned and altered by N3 using a synthesis of II data.
 
-narratives <- read.csv("../data/narratives.csv", stringsAsFactors = FALSE)
+narratives <- read.csv("../data/input/narratives.csv", stringsAsFactors = FALSE)
 ```
 
 
@@ -83,7 +83,7 @@ ldaOut.terms4
 ```{r}
 as.matrix(terms(LDA3,20)) %>%
   as.data.frame() %>%
-  write.csv("../data/Topic_List.csv")
+  write.csv("../data/output/Topic_List.csv")
 ```
 
 ##### This is to look at the probabilistic topic values assigned to each document. Currently this doesn't export a spreadsheet, but can be modified to export a csv.
@@ -99,12 +99,25 @@ wide <- spread(topicAssignments, topic, gamma)
 
 documentAssignments <- narratives %>% left_join(wide, by = c("id"="document"))
 
-documentAssignments %>% write.csv("../data/documentAssignments.csv")
+documentAssignments %>% write.csv("../data/output/documentAssignments.csv")
 
 
 ```
 
 ##### Create graphs comparing which categories are in each dataset.
+
+Match timeframe
+```{r}
+complaints %>% filter(CRID %in% docs$CRID) %>% count(year)
+complaints %>% filter(CRID %in% narratives$cr_id) %>% count(year)
+
+complaintYears <- complaints %>% select(CRID, year)
+docs <- docs %>% left_join(complaintYears) %>% filter(!is.na(year)) %>% filter(year>2008)
+narratives<- narratives %>% left_join(complaintYears, by = c("cr_id"= "CRID")) %>% filter(!is.na(year)) %>% filter(year>2008)
+#We're going to go from 2009 to 2015
+complaints<- complaints %>% filter(year>2008) %>% filter(year<2016)
+```
+
 ```{r}
 top5a <- complaints %>% 
   select(CRID, Category) %>%
@@ -132,7 +145,7 @@ top5b <- complaints %>%
   pull(Category)
 
 all2<- complaints %>% 
-  filter(CRID %in% docsPerCRID$CRID) %>% 
+  filter(CRID %in% docs$CRID) %>% 
   select(CRID, Category) %>% 
   mutate(Category = as.character(Category)) %>% 
   distinct() %>% 
