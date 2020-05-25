@@ -2,6 +2,9 @@
 title: "R Notebook"
 output: html_notebook
 ---
+```{r}
+library(dplyr)
+```
 
 ```{r}
 interpretations <- readxl::read_xlsx("../data/output/topic_interpretations.xlsx")
@@ -51,8 +54,7 @@ byCat <- topics %>%
   group_by(Category) %>%
   summarize_all(function(x){return(x*100)})
 byCat
-byCat%>% 
-  write.csv("../data/output/PercentTopicsByCategory.csv")
+#byCat%>%   write.csv("../data/output/PercentTopicsByCategory.csv")
 ```
 
 This tells us that there actually is an issue here. There are several things like physical force and verbal harassment that are picked up elsewhere
@@ -80,13 +82,26 @@ comms <- read.csv('../data/input/AttributesByCommunity.csv', stringsAsFactors = 
 comms <- comms %>% group_by(Community_ID) %>% mutate(ToRead_ordered = GetComplaints(Community_ID))%>% 
   select(Community_ID, Count, current_age, percentBlack, percentWhite, percentMale, percentFemale, WithinCommunityComplaints, Index_Value, DetectedCrew, totalSettlements, NumberOfDocs, NumberOfDocRequests,ToRead_ordered)
 
-comms  %>% write.csv("../data/output/BigCommunityDataset.csv")
+#comms  %>% write.csv("../data/output/BigCommunityDataset.csv")
 ```
 
 ```{r}
 officerAssignments <- commAssignments %>% select(officer, UID, Crew, Community_ID) %>% rename(ActualCrew = Crew) %>% mutate(Community_ID = ifelse(is.na(Community_ID), "None", Community_ID))
 officerAssignments %>% write.csv("../data/output/officerCommAssignments.csv")
 ```
+
+```{r}
+GetFlagValue <- function(comm)
+{
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  crids <- allComplaints %>% filter(UID %in% uids) %>% pull(CRID)
+  val <- flagged %>% filter(CRID %in% crids) %>% pull(Val)
+  return(sum(val)/length(val))
+}
+commsAltered <- comms %>% group_by(Community_ID) %>% mutate(flagVal = GetFlagValue(Community_ID))
+```
+
+
 
 
 
