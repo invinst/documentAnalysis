@@ -1,0 +1,473 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+library(dplyr)
+library(readxl)
+```
+
+```{r}
+comms <- read.csv("../data/input/AttributesByCommunity.csv") %>% 
+  select(-X) %>% 
+  select(-totalSettlements)
+
+commAssignments <- read.csv("../data/input/Officer_Community_Assignments.csv") %>% 
+  mutate(Community_ID=as.integer(Community_ID)) %>% 
+  filter(!is.na(Community_ID))
+
+complaints <- read.csv("../data/input/Complaint_Dataset.csv")
+settlements <- read.csv("../data/input/Settlements.csv")
+```
+
+### First, add how many officers are currently active
+```{r}
+currentStatus <- commAssignments %>% group_by(Community_ID) %>% 
+  summarize(currentlyActive = sum(current_status)) %>% 
+  mutate(currentlyActive = ifelse(is.na(currentlyActive),0,currentlyActive))
+comms <- comms %>% left_join(currentStatus, by = "Community_ID")
+```
+
+
+
+### Second add how many documents there are that list more than 1 officer in that community.
+```{r}
+#Need to add how many documents we have for each community
+docs <- read_xls("../data/input/first 4 batches.xls")[1:2]
+names(docs)[2] = "Num_of_Docs"
+docs <- docs %>% group_by(CRID) %>% summarize(Num_of_Docs = sum(Num_of_Docs)) %>% arrange(CRID)
+
+
+# for each community, pull CRIDS, then filter docs down to those CRIDS and add these up for those CRIDS.
+numberOfDocs<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  crids <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% distinct(CRID) %>% pull(CRID)
+  val <- docs %>% filter(CRID %in% crids) %>% pull(Num_of_Docs) %>% sum()
+  return(val)
+}
+
+comms <- comms %>% group_by(Community_ID) %>% mutate(NumberOfDocs2OrMoreListed = numberOfDocs(Community_ID)) %>% 
+  mutate(AvgNumberOfDocs = NumberOfDocs2OrMoreListed/Count)
+```
+
+
+### Next get the number of document requests that people have requested on complaints involving more than 1 officer in that community.
+```{r}
+documentRequests <- read.csv("../data/input/Document requests from CPDP users.csv") %>%
+  mutate(CRID = as.integer(gsub("C", "", allegation_id))) %>%
+  count(CRID) %>%
+  rename(Num_of_Doc_Requests = n)
+
+numberOfDocRequests<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  crids <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% distinct(CRID) %>% pull(CRID)
+  val <- documentRequests %>% filter(CRID %in% crids) %>% pull(Num_of_Doc_Requests) %>% sum()
+  return(val)
+}
+comms <- comms %>% ungroup() %>% group_by(Community_ID) %>% mutate(NumberOfDocRequests = numberOfDocRequests(Community_ID)) %>% ungroup()
+```
+
+### Add the pinboard URL 
+```{r}
+officerAssignments <- commAssignments %>%
+  group_by(Community_ID) %>% 
+  summarize(officers = paste(sort(unique(UID)),collapse=",")) %>% 
+  mutate(link = paste0("http://beta.cpdp.co/pinboard/?officer-ids=",officers,"&title=C",Community_ID)) %>% 
+  ungroup() %>% 
+  select(-officers)
+comms <- comms %>% left_join(officerAssignments, by = "Community_ID")
+```
+
+### Add total number of distinct settlements involving at least one officer in the community.
+```{r}
+numberOfSettlements<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  payouts <- settlements %>% filter(UID %in% uids) %>% distinct(case_id) %>%  pull(case_id)
+  return(length(payouts))
+}
+valueOfSettlements <- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  payouts <- settlements %>% filter(UID %in% uids) %>% distinct(case_id, .keep_all = TRUE) %>%  pull(settlement) %>% sum()
+  return(payouts)
+}
+
+comms <- comms %>% group_by(Community_ID) %>% mutate(numberOfDistinctSettlements = numberOfSettlements(Community_ID), TotalPayouts = valueOfSettlements(Community_ID))
+```
+
+
+
+
+```{r}
+NumberOfUseOfForce2OrMore <- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(Category== "Use Of Force") %>% distinct(CRID)
+  return(nrow(subset))
+}
+NumberOfIllegalSearch2OrMore<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(Category== "Illegal Search")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+NumberOfFalseArrest2OrMore<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(Category== "False Arrest")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+NumberOfOpsPersonnel2OrMore<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(Category== "Operation/Personnel Violations")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+NumberOfCriminalMisconduct2OrMore<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(Category== "Criminal Misconduct")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+NumberOfVerbalAbuse<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(Category== "Verbal Abuse")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+
+comms <- comms %>% group_by(Community_ID) %>% 
+  mutate(
+    UseOfForce_2orMore =NumberOfUseOfForce2OrMore(Community_ID),
+    IllegalSearch_2orMore =NumberOfIllegalSearch2OrMore(Community_ID),
+    FalseArrest_2orMore =NumberOfFalseArrest2OrMore(Community_ID),
+    OpsPersonnel_2orMore =NumberOfOpsPersonnel2OrMore(Community_ID),
+    CriminalMisconduct_2orMore =NumberOfCriminalMisconduct2OrMore(Community_ID),
+    VerbalAbuse_2orMore =NumberOfVerbalAbuse(Community_ID)
+  )
+```
+
+
+```{r}
+
+NumberOfSustained<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(Finding=="Sustained")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+NumberOfNotSustained <- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(Finding=="Not Sustained	")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+NumberOfNoAffidavit<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(Finding=="No Affidavit")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+NumberOfExonerated<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(Finding=="Exonerated")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+NumberOfUnfounded<- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(Finding=="Unfounded")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+comms <- comms %>% group_by(Community_ID) %>% 
+  mutate(
+    NumberOfSustained_2orMore =NumberOfSustained(Community_ID),
+    NumberOfNotSustained_2orMore =NumberOfNotSustained(Community_ID),
+    NumberOfNoAffidavit_2orMore =NumberOfNoAffidavit(Community_ID),
+    NumberOfExonerated_2orMore =NumberOfExonerated(Community_ID),
+    NumberOfUnfounded_2orMore =NumberOfUnfounded(Community_ID)
+  )
+comms
+```
+```{r}
+outcomes
+```
+
+
+### Add in outcomes
+```{r}
+outcomes <- complaints %>% mutate(outcome = ifelse(grepl("Suspen", Outcome), "Suspension", Outcome)) %>% mutate(outcome = ifelse(grepl("Reinstated", Outcome), "Reinstated", Outcome))
+
+NoActionTaken <- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- outcomes %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(outcome=="No Action Taken")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+PenaltyNotServed <- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- outcomes %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(outcome=="Penalty Not Served")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+Resigned <- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- outcomes %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(outcome=="Resigned")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+Reprimand <- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- outcomes %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(outcome=="Reprimand")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+AdministrativeTermination <- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- outcomes %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(outcome=="Administrative Termination")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+Reinstated <- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- outcomes %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(outcome=="Reinstated")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+Suspension <- function(comm){
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  subset <- outcomes %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% filter(outcome=="Suspended")%>% distinct(CRID)
+  return(nrow(subset))
+}
+
+comms <- comms %>% group_by(Community_ID) %>% 
+  mutate(
+    noActionTaken_2orMore = NoActionTaken(Community_ID),
+    PenaltyNotServed_2orMore = PenaltyNotServed(Community_ID),
+    Resigned_2orMore = Resigned(Community_ID),
+    Reprimand_2orMore = Reprimand(Community_ID),
+    AdministrativeTermination_2orMore = AdministrativeTermination(Community_ID),
+    Reinstated_2orMore = Reinstated(Community_ID),
+    Suspension_2orMore = Suspension(Community_ID)
+  )
+```
+
+
+### Add complainant information for each crew
+```{r}
+blackmales <- read_xlsx("../data/input/complainants/blackmales.xlsx", sheet = "Allegations") %>% 
+  mutate(Vic = "Black Male") %>% 
+  select(CRID, Vic)
+
+blackfemales <- read_xlsx("../data/input/complainants/blackfemales.xlsx", sheet = "Allegations") %>% 
+  mutate(Vic = "Black Female") %>% 
+  select(CRID, Vic)
+
+whitemales <- read_xlsx("../data/input/complainants/whitemales.xlsx", sheet = "Allegations") %>% 
+  mutate(Vic = "White Male") %>% 
+  select(CRID, Vic)
+
+whitefemales <- read_xlsx("../data/input/complainants/whitefemales.xlsx", sheet = "Allegations") %>% 
+  mutate(Vic = "White Female") %>% 
+  select(CRID, Vic)
+
+hispanicmales <- read_xlsx("../data/input/complainants/hispanicmales.xlsx", sheet = "Allegations") %>% 
+  mutate(Vic = "Hispanic Male") %>% 
+  select(CRID, Vic)
+
+hispanicfemales <- read_xlsx("../data/input/complainants/hispanicfemales.xlsx", sheet = "Allegations") %>% 
+  mutate(Vic = "Hispanic Female") %>% 
+  select(CRID, Vic)
+
+naanmales <- read_xlsx("../data/input/complainants/naanmales.xlsx", sheet = "Allegations") %>% 
+  mutate(Vic = "NAAN Male") %>% 
+  select(CRID, Vic)
+
+naanfemales <- read_xlsx("../data/input/complainants/naanfemales.xlsx", sheet = "Allegations") %>% 
+  mutate(Vic = "NAAN Female") %>% 
+  select(CRID, Vic)
+
+apimales <- read_xlsx("../data/input/complainants/asianpacificislandermales.xlsx", sheet = "Allegations") %>% 
+  mutate(Vic = "API Male") %>% 
+  select(CRID, Vic)
+
+apifemales <- read_xlsx("../data/input/complainants/asianpacificislanderfemales.xlsx", sheet = "Allegations") %>% 
+  mutate(Vic = "API Female") %>% 
+  select(CRID, Vic)
+
+allVics <- blackmales %>% 
+  rbind(blackfemales) %>% 
+  rbind(whitemales)%>% 
+  rbind(whitefemales) %>% 
+  rbind(hispanicmales)%>% 
+  rbind(hispanicfemales) %>% 
+  rbind(naanmales)%>% 
+  rbind(naanfemales) %>% 
+  rbind(apimales)%>% 
+  rbind(apifemales) %>% 
+  tidyr::separate(Vic, c("Race", "Gender"))
+```
+
+```{r}
+allVics
+
+blackComplainants <- function(community_ID){
+  uids <- commAssignments %>% filter(Community_ID ==community_ID) %>% pull(UID)
+  crids <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% distinct(CRID) %>%  pull(CRID)
+  subset <- allVics  %>% filter(CRID%in% crids)%>% filter(Race=="Black")
+  return(nrow(subset))
+}
+
+whiteComplainants <- function(community_ID){
+  uids <- commAssignments %>% filter(Community_ID ==community_ID) %>% pull(UID)
+  crids <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% distinct(CRID) %>%  pull(CRID)
+  subset <- allVics  %>% filter(CRID%in% crids)%>% filter(Race=="White")
+  return(nrow(subset))
+}
+
+hispanicComplainants <- function(community_ID){
+  uids <- commAssignments %>% filter(Community_ID ==community_ID) %>% pull(UID)
+  crids <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% distinct(CRID) %>%  pull(CRID)
+  subset <- allVics  %>% filter(CRID%in% crids)%>% filter(Race=="Hispanic")
+  return(nrow(subset))
+}
+
+maleComplainants <- function(community_ID){
+  uids <- commAssignments %>% filter(Community_ID ==community_ID) %>% pull(UID)
+  crids <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% distinct(CRID) %>%  pull(CRID)
+  subset <- allVics  %>% filter(CRID%in% crids)%>% filter(Gender=="Male")
+  return(nrow(subset))
+}
+
+femaleComplainants <- function(community_ID){
+  uids <- commAssignments %>% filter(Community_ID ==community_ID) %>% pull(UID)
+  crids <- complaints %>% filter(UID %in% uids) %>% group_by(CRID) %>% filter(n()>1) %>% ungroup() %>% distinct(CRID) %>%  pull(CRID)
+  subset <- allVics  %>% filter(CRID%in% crids)%>% filter(Gender=="Female")
+  return(nrow(subset))
+}
+
+comms <- comms %>% 
+  group_by(Community_ID) %>% 
+  mutate(
+    blackComplainants_2orMore = blackComplainants(Community_ID),
+    whiteComplainants_2orMore = whiteComplainants(Community_ID),
+    hispanicComplainants_2orMore = hispanicComplainants(Community_ID),
+    maleComplainants_2orMore = maleComplainants(Community_ID),
+    femaleComplainants_2orMore = femaleComplainants(Community_ID)
+  )
+
+```
+```{r}
+comms
+```
+### ADD IN TRR DATA
+```{r}
+main <- read.csv("../data/input/TRR/TRR-main_2004-2016_2016-09.csv")
+
+officers <- read.csv("../data/input/TRR/TRR-officers_2004-2016_2016-09.csv")%>%
+  select(trr_id, injured, link_UID)%>% 
+  rename(UID = link_UID)
+
+subjectWeapons <- read.csv("../data/input/TRR/TRR-subject-weapons_2004-2016_2016-09.csv") %>% 
+  mutate(vicWeapon = ifelse(weapon_type =="OTHER (SPECIFY)", weapon_description, weapon_type))%>%
+  select(trr_id, vicWeapon)
+
+officerWeapons <- read.csv("../data/input/TRR/TRR-weapon-discharges_2004-2016_2016-09.csv") %>% 
+  mutate(officerWeapon = ifelse(weapon_type =="OTHER (SPECIFY)", weapon_type_description, weapon_type)) %>% 
+  select(trr_id, officerWeapon)
+
+subjects<- read.csv("../data/input/TRR/TRR-subjects_2004-2016_2016-09.csv") %>% 
+  select(trr_id, gender, race, age, armed, injured) %>% 
+  rename(vicGender = gender,
+         vicRace= race,
+         vicAge = age,
+         vicArmed = armed,
+         vicInjured = injured)
+dischargeHits <- read.csv("../data/input/TRR/TRR-discharge-hits_2004-2016_2016-09.csv") %>% 
+  select(trr_id, object_struck_of_discharge)
+
+main <- main %>% 
+  left_join(officers, by = "trr_id")  %>% 
+  left_join(subjects, by = "trr_id") %>% 
+  left_join(officerWeapons, by = "trr_id") %>% 
+  left_join(subjectWeapons , by = "trr_id") %>% 
+  left_join(dischargeHits , by = "trr_id")
+
+other <- c("FIREARM - REVOLVER", "OFFICER DRAGGED BY VEHICLE", "SUBJECT POINTED WEAPON AT R/O", "VEHICLE - ATTEMPTED TO STRIKE OFFICER WITH VEHICLE", "VEHICLE - OFFICER STRUCK WITH VEHICLE", "VEHICLE")
+shotUnarmedVic <- main %>% filter(vicArmed=="No") %>% filter(firearm_used==1) %>% filter(vicInjured=="Yes") %>% filter(!(vicWeapon %in% other)) %>% filter(object_struck_of_discharge %in% c("BOTH", "PERSON")) %>% pull(trr_id)
+main <- main %>% mutate(shotUnarmedVic = ifelse(trr_id %in% shotUnarmedVic, "Yes", "No"))
+
+commsTRR <- commAssignments %>% select(UID, Community_ID) %>% 
+  left_join(main, by = "UID") %>% 
+  group_by(Community_ID) %>% 
+  summarize(totalTRRs = n(), 
+            totalShotUnarmedVic = sum(shotUnarmedVic=="Yes"),
+            totalTRRsWithFirearm = sum(firearm_used),
+            totalTRRsWithTasers = sum(taser),
+            totalIncidentsShotFirearmOrTaserFirst = sum(party_fired_first=="MEMBER"),
+            totalBlackTRRVics = sum(vicRace=="BLACK"),
+            totalWhiteTRRVics = sum(vicRace=="WHITE"),
+            totalHispanicTRRVics = sum(vicRace=="HISPANIC"),
+            totalMaleTRRVics = sum(vicGender =="MALE"), 
+            totalFemaleTRRVics = sum(vicGender =="FEMALE"),
+            averageTRRVicAge = mean(vicAge, na.rm=TRUE)
+            )
+commsTRR[is.na(commsTRR)] <- 0
+comms <- comms %>% left_join(commsTRR, by = "Community_ID") %>% 
+  mutate(
+    AvgTRRsPerOfficer = totalTRRs/Count,
+    AvgTRRsWithFirearmPerOfficer= totalTRRsWithFirearm/Count,
+    AvgTRRsWithTaserPerOfficer= totalTRRsWithTasers/Count
+  )
+```
+
+### Generate ordered list of which complaints to read.
+
+```{r}
+topics <- read.csv("../data/output/documentAssignments.csv") %>% 
+  distinct(Topic_1, Topic_2, Topic_3, Topic_4, Topic_5, Topic_6, Topic_7, Topic_8, Topic_9, Topic_10, Topic_11,Topic_12, Topic_13, Topic_14, .keep_all = TRUE) %>% 
+  filter(!is.na(text)) %>% 
+  filter(column_name=="Initial / Intake Allegation") %>% 
+  distinct(cr_id, .keep_all = TRUE) %>% 
+  mutate(
+    ImproperSearchOrDamage = ifelse(Topic_1>0.1, 1, 0),
+    FalseArrestOrForce = ifelse(Topic_2>0.1, 1, 0),
+    CellPhone = ifelse(Topic_3>0.1, 1, 0),
+    ProfanityVerbalAbuse = ifelse(Topic_4>0.1 |Topic_6>0.1, 1, 0),
+    PhysicalForce = ifelse(Topic_5>0.1, 1, 0),
+    Inventory = ifelse(Topic_7>0.1, 1, 0),
+    TrafficStop = ifelse(Topic_8>0.1 | Topic_9>0.1, 1, 0),
+    RaceGenderClothes = ifelse(Topic_11>0.1, 1, 0),
+    WeaponDetainmentOrDrugs = ifelse(Topic_13>0.1, 1, 0),
+    Family = ifelse(Topic_14>0.1, 1, 0),
+    FailureToDoSomething = ifelse(Topic_15>0.1, 1, 0)
+  )
+flagged <- topics %>% 
+  select(cr_id, text) %>% 
+  cbind(topics[,27:37]) %>%
+  as.data.frame() %>% 
+  rename(CRID = cr_id) %>% 
+  left_join(complaints) %>% 
+  filter(!is.na(Category))%>%
+  mutate(Val = ImproperSearchOrDamage+ FalseArrestOrForce+ ProfanityVerbalAbuse+ PhysicalForce+ WeaponDetainmentOrDrugs) %>%
+  arrange(-Val)
+
+GetComplaints <- function(comm)
+{
+  uids <- commAssignments %>% filter(Community_ID ==comm) %>% pull(UID)
+  crids <-complaints %>% filter(UID %in% uids) %>% pull(CRID)
+  val <- flagged %>% filter(CRID %in% crids) %>% pull(CRID)
+  val <- paste(val,collapse=", ")
+  if(val==""){
+    return("")
+  }
+  return(val)
+}
+
+comms <- comms %>% group_by(Community_ID) %>% mutate(ToRead_ordered = GetComplaints(Community_ID)) %>% ungroup()
+```
+
+### Export this dataset
+```{r}
+comms %>% write.csv("../data/output/BigCommunityDataset.csv")
+```
+
