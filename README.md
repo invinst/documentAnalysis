@@ -1,9 +1,24 @@
 # Document Analysis
-Topic Models On Documents and Community Information.
+
+### First: Topic Models On Documents and Community Information.
 
 This code looks through the narratives of the documents received in the Green lawsuit and performs preliminary topic modeling. It also takes the list of generated communities from the "Watts project" and adds additional information for further analysis.
 
 Preliminary findings indicate that there are hidden themes in complaints that are not reflected in the categorization. This analysis is not meant to be final or indicative in any way. We used a Latent Dirichlet Allocation Topic Model for this analysis with a k-value of 15.
+
+### Crews FAQs: 
+
+#### How does this analyis define "crew"?
+This analyis defines a crew as a "tight-knit community of officers involved in high levels of egregious misconduct and criminal activity." It's assumed that there are various types of crews ranging in severity, duration, structure, etc. 
+
+#### Is every detected community a crew?
+The short answer is no. It's conceivable that communities exist for a wide variety of reasons. Given that policing is largely group work, natural communities will exist. Additionally, if an officer has received 100 complaints, some with other individuals, they may appear to be part of a community without being part of a crew. As such, it's essential to be able to differentiate crews from communities.
+
+#### How were crews generated?
+Community detection algorithms were run on top of a misconduct network to provide the list of 2,334 communities. From there, an index was created using five variables: Within Community Complaints, Average Weighted Degree, Internal Complaints Per Person, Jaccard Index with Label Propagation, and Percent Flagged. Percent Flagged corresponds to the results of clustering algorithms on officers that identified "types" of officers more likely to be in crews. The higher these five values are, the higher the chance that a community is a "crew."
+
+#### Once we have a list of officers in a detected crew, what do we look for?
+This is not my particular area of expertise, but it seems that severe allegations, victimization patterns (location, type of victim), consistent community behavior, etc. would all be contributing factors. Unfortunately, much of this information is unknown as a result of deliberate and systemic obstacles.
 
 ### Files to know in data/output:
 * 'BigCommunityDataset.csv' - This is the dataset indexed by community with all the information needed for further analysis.
@@ -77,3 +92,5 @@ Presentations contain information on the methodology employed as well as some he
 * AvgTRRsWithFirearmPerOfficer: totalTRRsWithFirearm divided by Count
 * AvgTRRsWithTaserPerOfficer: totalTRRsWithTasers divided by Count
 * ToRead_ordered: An ordered list of complaints to read based on topic analysis of the complaints with narrative information.
+
+If you have any questions, feel free to email me, Akshay Jain, at akshayjain2020@u.northwestern.edu or akshayjain.nu@gmail.com
