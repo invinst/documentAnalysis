@@ -188,9 +188,6 @@ comms <- comms %>% group_by(Community_ID) %>%
   )
 comms
 ```
-```{r}
-outcomes
-```
 
 
 ### Add in outcomes
@@ -256,43 +253,43 @@ comms <- comms %>% group_by(Community_ID) %>%
 ```{r}
 blackmales <- read_xlsx("../data/input/complainants/blackmales.xlsx", sheet = "Allegations") %>% 
   mutate(Vic = "Black Male") %>% 
-  select(CRID, Vic)
+  distinct(CRID, Vic)
 
 blackfemales <- read_xlsx("../data/input/complainants/blackfemales.xlsx", sheet = "Allegations") %>% 
   mutate(Vic = "Black Female") %>% 
-  select(CRID, Vic)
+  distinct(CRID, Vic)
 
 whitemales <- read_xlsx("../data/input/complainants/whitemales.xlsx", sheet = "Allegations") %>% 
   mutate(Vic = "White Male") %>% 
-  select(CRID, Vic)
+  distinct(CRID, Vic)
 
 whitefemales <- read_xlsx("../data/input/complainants/whitefemales.xlsx", sheet = "Allegations") %>% 
   mutate(Vic = "White Female") %>% 
-  select(CRID, Vic)
+  distinct(CRID, Vic)
 
 hispanicmales <- read_xlsx("../data/input/complainants/hispanicmales.xlsx", sheet = "Allegations") %>% 
   mutate(Vic = "Hispanic Male") %>% 
-  select(CRID, Vic)
+  distinct(CRID, Vic)
 
 hispanicfemales <- read_xlsx("../data/input/complainants/hispanicfemales.xlsx", sheet = "Allegations") %>% 
   mutate(Vic = "Hispanic Female") %>% 
-  select(CRID, Vic)
+  distinct(CRID, Vic)
 
 naanmales <- read_xlsx("../data/input/complainants/naanmales.xlsx", sheet = "Allegations") %>% 
   mutate(Vic = "NAAN Male") %>% 
-  select(CRID, Vic)
+  distinct(CRID, Vic)
 
 naanfemales <- read_xlsx("../data/input/complainants/naanfemales.xlsx", sheet = "Allegations") %>% 
   mutate(Vic = "NAAN Female") %>% 
-  select(CRID, Vic)
+  distinct(CRID, Vic)
 
 apimales <- read_xlsx("../data/input/complainants/asianpacificislandermales.xlsx", sheet = "Allegations") %>% 
   mutate(Vic = "API Male") %>% 
-  select(CRID, Vic)
+  distinct(CRID, Vic)
 
 apifemales <- read_xlsx("../data/input/complainants/asianpacificislanderfemales.xlsx", sheet = "Allegations") %>% 
   mutate(Vic = "API Female") %>% 
-  select(CRID, Vic)
+  distinct(CRID, Vic)
 
 allVics <- blackmales %>% 
   rbind(blackfemales) %>% 
@@ -304,7 +301,10 @@ allVics <- blackmales %>%
   rbind(naanfemales) %>% 
   rbind(apimales)%>% 
   rbind(apifemales) %>% 
+  mutate(Victim=Vic) %>% 
   tidyr::separate(Vic, c("Race", "Gender"))
+
+#allVics %>% write.csv("../data/output/Complainants.csv")
 ```
 
 ```{r}
@@ -466,8 +466,12 @@ GetComplaints <- function(comm)
 comms <- comms %>% group_by(Community_ID) %>% mutate(ToRead_ordered = GetComplaints(Community_ID)) %>% ungroup()
 ```
 
+
 ### Export this dataset
 ```{r}
 comms %>% write.csv("../data/output/BigCommunityDataset.csv")
 ```
+
+
+
 

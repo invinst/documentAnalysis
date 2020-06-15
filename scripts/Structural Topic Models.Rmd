@@ -1,0 +1,49 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(stm)
+library(SnowballC)
+library(tm)
+```
+
+```{r}
+narratives <- read.csv("../data/input/narratives.csv")
+complaints <- read.csv("../data/input/Complaint_Dataset.csv")
+complainants <- read.csv("../data/output/Complainants.csv")
+```
+
+```{r}
+texts <- narratives %>% 
+  filter(text!="(None Entered)") %>% 
+  filter(text!="Confidential") %>% 
+  filter(column_name=="Initial / Intake Allegation") %>% 
+  distinct(cr_id, .keep_all = TRUE) %>% 
+  rename(CRID = cr_id) %>% 
+  select(CRID, text)
+
+df <- complaints %>% 
+  group_by(CRID) %>% 
+  summarize(NumberOfOfficers = n(), Category = first(Category), Allegation = first(Allegation), Beat = first(Beat), FiledBy = first(Filedby)) %>% 
+  inner_join(texts, by = "CRID")
+
+rownames(df) = df$CRID
+df <- df %>% select(-CRID)
+
+customStopWords <-c("alleged", "allege", "accuse","accused", "officer", "chicago", "parties","party", "report","complain", "complaint", "complained", "police", "citation", "violation", "confidential")
+processed <- textProcessor(df$text, metadata = df, customstopwords = customStopWords)
+out <- prepDocuments(processed$documents, processed$vocab, processed$meta)
+
+docs <- out$documents
+vocab <- out$vocab
+meta <- out$meta
+```
+```{r}
+model <- stm(out$documents, out$vocab, K=20, max.em.its = 75, data = out$meta, seed = 1 )
+
+labelTopics(model)
+```
+
