@@ -472,6 +472,15 @@ comms <- comms %>% group_by(Community_ID) %>% mutate(ToRead_ordered = GetComplai
 comms %>% write.csv("../data/output/BigCommunityDataset.csv")
 ```
 
+```{r}
+comps <- read.csv("/Volumes/N3_LAB/core_misconduct_data/from_invinst/fully-unified-data_08-28-18/complaints/complaints-accused.csv") %>% left_join(read.csv("/Volumes/N3_LAB/core_misconduct_data/from_invinst/fully-unified-data_08-28-18/complaints/complaints-complaints.csv"),by = "cr_id")
+```
+```{r}
+comps %>% filter(!is.na(link_UID))%>% filter(!is.na(cr_id))
+```
+```{r}
+
+```
 
 
 

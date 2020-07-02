@@ -8,13 +8,35 @@ library(dplyr)
 library(stm)
 library(SnowballC)
 library(tm)
+library(ggplot2)
 ```
+
 
 ```{r}
 narratives <- read.csv("../data/input/narratives.csv")
 complaints <- read.csv("../data/input/Complaint_Dataset.csv")
-complainants <- read.csv("../data/output/Complainants.csv")
+complainants_raw <- read.csv("/Volumes/N3_LAB/core_misconduct_data/from_invinst/fully-unified-data_08-28-18/complaints/complaints-complainants.csv") %>%
+  transmute(CRID=cr_id, complainant_gender = gender, complainant_race = race, complainant_age = age)
+vics_raw <- read.csv("/Volumes/N3_LAB/core_misconduct_data/from_invinst/fully-unified-data_08-28-18/complaints/complaints-victims.csv") %>%
+  transmute(CRID=cr_id, vic_gender = gender, vic_race = race, vic_age = age)
 ```
+
+```{r}
+complainants <- complainants_raw %>% 
+  mutate(identity = paste0(complainant_race, " ", complainant_gender)) %>% 
+  filter((complainant_gender !="")) %>% 
+  filter((complainant_race !="")) %>% 
+  group_by(CRID) %>% 
+  summarize(
+    blackfemale = sum(identity == "BLACK FEMALE"),
+    blackmale = sum(identity == "BLACK MALE"),
+    hispanicfemale = sum(identity=="HISPANIC FEMALE"),
+    hispanicmale = sum(identity == "HISPANIC MALE"),
+    whitemale = sum(identity == "WHITE MALE"),
+    whitefemale = sum(identity == "WHITE FEMALE")
+  )
+```
+
 
 ```{r}
 texts <- narratives %>% 
@@ -23,27 +45,154 @@ texts <- narratives %>%
   filter(column_name=="Initial / Intake Allegation") %>% 
   distinct(cr_id, .keep_all = TRUE) %>% 
   rename(CRID = cr_id) %>% 
-  select(CRID, text)
-
+  select(CRID, text) 
 df <- complaints %>% 
   group_by(CRID) %>% 
   summarize(NumberOfOfficers = n(), Category = first(Category), Allegation = first(Allegation), Beat = first(Beat), FiledBy = first(Filedby)) %>% 
   inner_join(texts, by = "CRID")
-
+df <- df %>% left_join(complainants, by = "CRID")
 rownames(df) = df$CRID
-df <- df %>% select(-CRID)
+df <- df %>% select(-CRID) %>% filter(complete.cases(.))
+```
 
-customStopWords <-c("alleged", "allege", "accuse","accused", "officer", "chicago", "parties","party", "report","complain", "complaint", "complained", "police", "citation", "violation", "confidential")
-processed <- textProcessor(df$text, metadata = df, customstopwords = customStopWords)
+```{r}
+customStopWords <-c("alleged", "alleg", "allege", "allegation","allegations", "allegedly", "alleges","accusations","accuseds", "alleging", "accuse","accuses", "accusing","accused", "officer", "chicago", "parties","party", "report","complain", "complaint", "complained", "police", "citation", "violation", "confidential", "reported", "reporting", "complaining", "complainant", "compalinant", "compiainant", "complaianant", "complainants", "complainantvictim", "complaintant", "complaints", "complamnant","complanant", "reportin", "reportina","reports", "partys", "partyvictim", "partyvictims")
+processed <- textProcessor(df$text, metadata = df, customstopwords = customStopWords, removepunctuation = TRUE, custompunctuation = c('‘', '“', "-","”", "-"))
 out <- prepDocuments(processed$documents, processed$vocab, processed$meta)
 
 docs <- out$documents
 vocab <- out$vocab
 meta <- out$meta
 ```
-```{r}
-model <- stm(out$documents, out$vocab, K=20, max.em.its = 75, data = out$meta, seed = 1 )
 
+```{r}
+K <- c(10, 20, 30, 40, 50)
+ksearch <- searchK(docs, vocab, K, prevalence = ~NumberOfOfficers + as.character(Beat) + FiledBy + blackfemale + blackmale + hispanicfemale + hispanicmale + whitemale + whitefemale, data=meta)
+```
+
+```{r}
+plot(ksearch)
+```
+```{r}
+model <- stm(docs, vocab, K=20, prevalence = ~NumberOfOfficers + as.character(Beat) + FiledBy + blackfemale + blackmale + hispanicfemale + hispanicmale + whitemale + whitefemale, data=meta)
+```
+
+```{r}
 labelTopics(model)
 ```
+
+```{r}
+plot.STM(model,type="summary", text.cex = 0.7)
+#,xlim=c(0,0.15)
+```
+
+```{r}
+findThoughts(model, meta$text, topics = 4)
+```
+```{r}
+sexwords <- c("anus","bra", "breast", "butt", "buttock", "caviti", "genit", "groin", "insert", "naked", "pant", "panti", "peni",  "rectum","rub", "sex", "sexual", "strip", "vagina", "underwear", "undress", "unfasten", "unzip")
+```
+```{r}
+flagged <- meta %>% 
+  cbind(model$theta %>% as.data.frame()) %>%
+  mutate(text2 = tolower(text)) %>% 
+  mutate(text2= gsub("\n", " ", text2)) %>% 
+  mutate(text2 = removePunctuation(text2)) %>%
+  mutate(sexual_flag = ifelse(grepl(paste(sexwords, collapse = "|"), text2), "Yes","No" ))
+```
+
+
+```{r}
+data1 <- (flagged %>% 
+   filter(sexual_flag=="Yes") %>% 
+  summarize_all("mean"))[13:32] %>% 
+  tidyr::gather("name", "value", "V1":"V20") %>% 
+  mutate(Topic = as.integer(substr(name, 2,nchar(name)))) %>% 
+  select(Topic,value) %>% 
+  mutate(Type = "Flagged")
+
+data2 <- (flagged %>% 
+  summarize_all("mean", na.rm=TRUE))[13:32] %>% 
+  tidyr::gather("name", "value", "V1":"V20") %>% 
+  mutate(Topic = as.integer(substr(name, 2,nchar(name)))) %>% 
+  select(Topic,value) %>% 
+  mutate(Type = "All")
+
+data1 %>% rbind(data2) %>%  
+  mutate(value = 100*value) %>% 
+  ggplot(aes(x=Topic, y= value))+ 
+  geom_col(aes(fill=Type))+
+  ggtitle("Topic Distribution for Flagged Complaints")+
+  xlab("Topic Number")+
+  ylab("Percent Occurrence")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+```{r}
+flaggedYes <- flagged %>% filter(sexual_flag=="Yes")
+cridsToo <- texts %>% inner_join(flaggedYes, by = "text") 
+complaints %>% filter(CRID %in% cridsToo$CRID) %>% count(Category) %>% filter(Category!="") %>% mutate(percent = n*100/sum(n)) %>% ggplot(aes(x=reorder(Category,percent), y = percent))+
+  geom_col(aes(fill=Category))+
+  theme(legend.position = "none")+
+  coord_flip()+
+  ggtitle("Category Distribution for Sexually-Flagged Complaints")+
+  xlab("")+
+  ylab("Percent Occurrence")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+complaints %>% filter(CRID %in% cridsToo$CRID) %>% count(Allegation) %>% filter(Allegation!="") %>% mutate(percent = n*100/sum(n)) %>% ggplot(aes(x=reorder(Allegation,percent), y = percent))+
+  geom_col(aes(fill=Allegation))+
+  theme(legend.position = "none")+
+  coord_flip()+
+  ggtitle("Allegation Distribution for Sexually-Flagged Complaints")+
+  xlab("")+
+  ylab("Percent Occurrence")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(
+  axis.text.y = element_text(size = 7))
+```
+```{r}
+complaints %>% filter(CRID %in% cridsToo$CRID) %>% count(Finding) %>% filter(Finding!="") %>% mutate(percent = n*100/sum(n))
+```
+
+```{r}
+# flagged %>% 
+#   mutate(
+#     Topic1 = ifelse(V1>=0.1,1,0),
+#     Topic2 = ifelse(V2>=0.1,1,0),
+#     Topic3 = ifelse(V3>=0.1,1,0),
+#     Topic4 = ifelse(V4>=0.1,1,0),
+#     Topic5 = ifelse(V5>=0.1,1,0),
+#     Topic6 = ifelse(V6>=0.1,1,0),
+#     Topic7 = ifelse(V7>=0.1,1,0),
+#     Topic8 = ifelse(V8>=0.1,1,0),
+#     Topic9 = ifelse(V9>=0.1,1,0),
+#     Topic10 = ifelse(V10>=0.1,1,0),
+#     Topic11 = ifelse(V11>=0.1,1,0),
+#     Topic12 = ifelse(V12>=0.1,1,0),
+#     Topic13 = ifelse(V13>=0.1,1,0),
+#     Topic14 = ifelse(V14>=0.1,1,0),
+#     Topic15 = ifelse(V15>=0.1,1,0),
+#     Topic16 = ifelse(V16>=0.1,1,0),
+#     Topic17 = ifelse(V17>=0.1,1,0),
+#     Topic18 = ifelse(V18>=0.1,1,0),
+#     Topic19 = ifelse(V19>=0.1,1,0),
+#     Topic20 = ifelse(V20>=0.1,1,0)
+#     )
+
+temp <- flagged %>% select(Category) %>% cbind(flagged[13:32]) %>% filter(Category!="") %>% group_by(Category) %>% summarize_all("mean")
+library(data.table)
+dat <- transpose(temp)
+names(dat) <- as.matrix(dat[1, ])
+dat <- dat[-1, ]
+dat[] <- lapply(dat, function(x) type.convert(as.character(x)))
+dat %>% cor() %>% as.data.frame()%>% write.csv("../data/output/CategoryCorrelations.csv")
+```
+
+```{r}
+total <- (cridsToo[8:13] %>% summarize_all("sum") %>% as.matrix())[1,]
+comps <- data.frame(total) 
+comps  %>% mutate(comp = rownames(comps))%>% mutate(percent = total*100/sum(total))
+
+```
+
 
