@@ -4,12 +4,17 @@
 
 This code looks through the narratives of the documents received in the Green lawsuit and performs preliminary topic modeling. It also takes the list of generated communities from the "Watts project" and adds additional information for further analysis.
 
-Preliminary findings indicate that there are hidden themes in complaints that are not reflected in the categorization. This analysis is not meant to be final or indicative in any way. We used a Latent Dirichlet Allocation Topic Model for this analysis with a k-value of 15.
+Preliminary findings indicate that there are hidden themes in complaints that are not reflected in the categorization. This analysis is not meant to be final or indicative in any way. We initially used a Latent Dirichlet Allocation Topic Model for this analysis with a k-value of 15, then moved over to a structural topic model with 20 topics. 
+
+Topic analysis can help us refine the categorization of known complaints. As you can find in some of the presentations, there are major discrepancies with the content of a complaint and the category that it is filed under. There are two main goals for topic analysis. First, can we create a better complaint classification system. That seems doable, but requires some tweaking of the topic modeling. Second, can we identify hidden themes and topics. We chose to flag words related to sexual violence in an attempt to learn more about this, and it does appear that there are hidden themes; however, it is unclear whether topic modeling can help us fix that problem.
+
+This is a promising realm of analysis and with some minor adjustments to the model, can offer great and vast insights.
+
 
 ### Crews FAQs: 
 
 #### How does this analyis define "crew"?
-This analyis defines a crew as a "tight-knit community of officers involved in high levels of egregious misconduct and criminal activity." It's assumed that there are various types of crews ranging in severity, duration, structure, etc. 
+This analyis defines a crew as a "tight-knit community of officers involved in high levels of egregious misconduct and criminal activity." Specifically, a group of officers is a crew if it exhibits four characteristics: (1) Frequency: the officers display high levels of co-offending misconduct; (2) Exclusivity: the officers are involved in recurrent co-offending misconduct within the group, as opposed to co-offending misconduct with external officers; (3) Severity: the officers are engaged in similar types of misconduct activities (i.e. excessive force, illegal searches, etc.); and (4) Cohesion: the group exhibits well-defined membership. It's assumed that there are various types of crews ranging in severity, duration, structure, etc. 
 
 #### Is every detected community a crew?
 The short answer is no. It's conceivable that communities exist for a wide variety of reasons. Given that policing is largely group work, natural communities will exist. Additionally, if an officer has received 100 complaints, some with other individuals, they may appear to be part of a community without being part of a crew. As such, it's essential to be able to differentiate crews from communities.
